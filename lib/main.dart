@@ -1,7 +1,10 @@
-import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:fl_chart/fl_chart.dart';
 
 void main() {
   runApp(const MyApp());
@@ -53,9 +56,6 @@ class _AuthPageState extends State<AuthPage> {
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-
-        // Navigate to the data submission page with the token
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -81,28 +81,26 @@ class _AuthPageState extends State<AuthPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Enter Token'),
+        title: const Text('Token Authentication'),
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              TextField(
-                controller: _tokenController,
-                decoration: const InputDecoration(
-                  labelText: 'Token',
-                  border: OutlineInputBorder(),
-                ),
+      body: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            TextField(
+              controller: _tokenController,
+              decoration: const InputDecoration(
+                labelText: 'Enter Token',
+                border: OutlineInputBorder(),
               ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () => _authenticate(context),
-                child: const Text('Authenticate'),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () => _authenticate(context),
+              child: const Text('Authenticate'),
+            ),
+          ],
         ),
       ),
     );
@@ -120,7 +118,9 @@ class DataPage extends StatefulWidget {
 
 class _DataPageState extends State<DataPage> {
   final String _postUrl = "http://localhost:3000/devices/data"; // Data submission endpoint
-  List<Map<String, dynamic>> _submittedData = [];
+  List<Map<String, dynamic>> _sentData = []; // Stores the sent data locally
+  Timer? _timer;
+  bool _isSending = false;
 
   Map<String, dynamic> _generateData() {
     final random = Random();
@@ -138,7 +138,6 @@ class _DataPageState extends State<DataPage> {
     double electricPrice = 0.15; // Price per kWh
 
     return {
-      "isActive": true,
       "voltage": addNoise(voltage),
       "current": addNoise(current),
       "power": addNoise(power),
@@ -164,10 +163,11 @@ Future<void> _sendData() async {
       body: jsonEncode(data),
     );
 
-    if (response.statusCode == 200) {
-      // Add the generated data directly to the list
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final responseData = jsonDecode(response.body); // Parse the response
       setState(() {
-        _submittedData.add(generatedData); // Use generatedData instead of data['device']
+        // Add the returned data or fallback to generated data
+        _sentData.add(responseData['device'] ?? generatedData);
       });
     } else {
       debugPrint("Failed to submit data: ${response.statusCode}");
@@ -178,45 +178,130 @@ Future<void> _sendData() async {
 }
 
 
+  void _startSendingData() {
+    _timer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      _sendData();
+    });
+    setState(() {
+      _isSending = true;
+    });
+  }
+
+  void _stopSendingData() {
+    _timer?.cancel();
+    setState(() {
+      _isSending = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Send Energy Data'),
+        title: const Text('Energy Data Dashboard'),
       ),
       body: Column(
         children: [
-          ElevatedButton(
-            onPressed: _sendData,
-            child: const Text('Generate and Send Data'),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton(
+                onPressed: _isSending ? null : _startSendingData,
+                child: const Text('Start Sending Data'),
+              ),
+              const SizedBox(width: 10),
+              ElevatedButton(
+                onPressed: _isSending ? _stopSendingData : null,
+                child: const Text('Stop Sending Data'),
+              ),
+            ],
           ),
+          const SizedBox(height: 20),
           Expanded(
-            child: ListView.builder(
-              itemCount: _submittedData.length,
-              itemBuilder: (context, index) {
-                final data = _submittedData[index];
-                return Card(
-                  margin: const EdgeInsets.all(8.0),
-                  child: ListTile(
-                    title: Text("Data Set #${index + 1}"),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text("Voltage: ${data['voltage']} V"),
-                        Text("Current: ${data['current']} A"),
-                        Text("Power: ${data['power']} W"),
-                        Text("Frequency: ${data['frequency']} Hz"),
-                        Text("PF: ${data['PF']}"),
-                        Text("Electric Price: ${data['electricPrice']} USD"),
-                      ],
-                    ),
-                  ),
-                );
-              },
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  _buildStatisticCard("Average Frequency", _calculateAverage("frequency"), Colors.green),
+                  _buildStatisticCard("Average PF", _calculateAverage("PF"), Colors.orange),
+                  _buildStatisticCard("Avg Electric Price", _calculateAverage("electricPrice"), Colors.blue),
+                  const SizedBox(height: 20),
+                  _buildLineChart("Voltage Over Index", "voltage", Colors.teal),
+                  _buildLineChart("Power Over Index", "power", Colors.pink),
+                  _buildLineChart("Current Over Index", "current", Colors.blue),
+                ],
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildStatisticCard(String title, double value, Color color) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      color: color.withOpacity(0.1),
+      child: ListTile(
+        title: Text(title, style: TextStyle(fontSize: 18, color: color)),
+        trailing: Text(value.toStringAsFixed(2), style: TextStyle(fontSize: 24, color: color)),
+      ),
+    );
+  }
+
+  Widget _buildLineChart(String title, String key, Color color) {
+    List<FlSpot> spots = [];
+    for (int i = 0; i < _sentData.length; i++) {
+      spots.add(FlSpot(i.toDouble(), _sentData[i][key] ?? 0.0));
+    }
+
+    return Card(
+      margin: const EdgeInsets.all(16),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(
+              height: 200,
+              child: LineChart(
+                LineChartData(
+                  lineBarsData: [
+                    LineChartBarData(
+                      isCurved: true,
+                      color: color,
+                      barWidth: 3,
+                      spots: spots,
+                      belowBarData: BarAreaData(show: false),
+                    ),
+                  ],
+                  titlesData: FlTitlesData(
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: true),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: true),
+                    ),
+                  ),
+                  borderData: FlBorderData(show: true),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  double _calculateAverage(String key) {
+    if (_sentData.isEmpty) return 0.0;
+    double sum = _sentData.fold(0.0, (prev, element) => prev + (element[key] ?? 0.0));
+    return sum / _sentData.length;
   }
 }
