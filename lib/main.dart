@@ -18,8 +18,9 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Energy Data App',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        fontFamily: 'Roboto',
       ),
       home: const AuthPage(),
     );
@@ -35,7 +36,7 @@ class AuthPage extends StatefulWidget {
 
 class _AuthPageState extends State<AuthPage> {
   final TextEditingController _tokenController = TextEditingController();
-  final String _authUrl = "http://localhost:3000/register_devices/device_info"; // Authentication endpoint
+  final String _authUrl = "http://localhost:3000/register_devices/device_info";
 
   @override
   void dispose() {
@@ -73,7 +74,11 @@ class _AuthPageState extends State<AuthPage> {
 
   void _showError(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.redAccent,
+      ),
     );
   }
 
@@ -82,23 +87,36 @@ class _AuthPageState extends State<AuthPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Token Authentication'),
+        centerTitle: true,
+        backgroundColor: Theme.of(context).colorScheme.primary,
       ),
       body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        padding: const EdgeInsets.all(20.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             TextField(
               controller: _tokenController,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Enter Token',
-                border: OutlineInputBorder(),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+                prefixIcon: const Icon(Icons.security),
               ),
             ),
             const SizedBox(height: 20),
-            ElevatedButton(
+            ElevatedButton.icon(
               onPressed: () => _authenticate(context),
-              child: const Text('Authenticate'),
+              icon: const Icon(Icons.login),
+              label: const Text('Authenticate'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                minimumSize: const Size(double.infinity, 50),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+              ),
             ),
           ],
         ),
@@ -117,8 +135,8 @@ class DataPage extends StatefulWidget {
 }
 
 class _DataPageState extends State<DataPage> {
-  final String _postUrl = "http://localhost:3000/devices/data"; // Data submission endpoint
-  List<Map<String, dynamic>> _sentData = []; // Stores the sent data locally
+  final String _postUrl = "http://localhost:3000/devices/data";
+  List<Map<String, dynamic>> _sentData = [];
   Timer? _timer;
   bool _isSending = false;
 
@@ -126,16 +144,16 @@ class _DataPageState extends State<DataPage> {
     final random = Random();
 
     double addNoise(double value) {
-      double noise = value * 0.02 * (random.nextDouble() - 0.5) * 2; // +/- 2% noise
+      double noise = value * 0.02 * (random.nextDouble() - 0.5) * 2;
       return double.parse((value + noise).toStringAsFixed(2));
     }
 
-    double voltage = 230.0; // Nominal voltage
-    double current = 10.0; // Nominal current
-    double power = voltage * current * 0.95; // Power = Voltage * Current * PF
-    double frequency = 50.0; // Standard frequency
-    double pf = 0.95; // Power factor
-    double electricPrice = 0.15; // Price per kWh
+    double voltage = 230.0;
+    double current = 10.0;
+    double power = voltage * current * 0.95;
+    double frequency = 50.0;
+    double pf = 0.95;
+    double electricPrice = 0.15;
 
     return {
       "voltage": addNoise(voltage),
@@ -147,41 +165,35 @@ class _DataPageState extends State<DataPage> {
     };
   }
 
-Future<void> _sendData() async {
-  final generatedData = _generateData();
-  final data = {
-    "device": generatedData,
-  };
+  Future<void> _sendData() async {
+    final generatedData = _generateData();
+    final data = {"device": generatedData};
 
-  try {
-    final response = await http.post(
-      Uri.parse(_postUrl),
-      headers: {
-        'Authorization': 'Bearer ${widget.token}',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(data),
-    );
+    try {
+      final response = await http.post(
+        Uri.parse(_postUrl),
+        headers: {
+          'Authorization': 'Bearer ${widget.token}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(data),
+      );
 
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      final responseData = jsonDecode(response.body); // Parse the response
-      setState(() {
-        // Add the returned data or fallback to generated data
-        _sentData.add(responseData['device'] ?? generatedData);
-      });
-    } else {
-      debugPrint("Failed to submit data: ${response.statusCode}");
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final responseData = jsonDecode(response.body);
+        setState(() {
+          _sentData.add(responseData['device'] ?? generatedData);
+        });
+      } else {
+        debugPrint("Failed to submit data: ${response.statusCode}");
+      }
+    } catch (error) {
+      debugPrint("Error submitting data: $error");
     }
-  } catch (error) {
-    debugPrint("Error submitting data: $error");
   }
-}
-
 
   void _startSendingData() {
-    _timer = Timer.periodic(const Duration(seconds: 3), (timer) {
-      _sendData();
-    });
+    _timer = Timer.periodic(const Duration(seconds: 3), (_) => _sendData());
     setState(() {
       _isSending = true;
     });
@@ -205,37 +217,38 @@ Future<void> _sendData() async {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Energy Data Dashboard'),
+        centerTitle: true,
       ),
       body: Column(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ElevatedButton(
-                onPressed: _isSending ? null : _startSendingData,
-                child: const Text('Start Sending Data'),
-              ),
-              const SizedBox(width: 10),
-              ElevatedButton(
-                onPressed: _isSending ? _stopSendingData : null,
-                child: const Text('Stop Sending Data'),
-              ),
-            ],
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _isSending ? null : _startSendingData,
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Start'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _isSending ? _stopSendingData : null,
+                  icon: const Icon(Icons.stop),
+                  label: const Text('Stop'),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 20),
           Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  _buildStatisticCard("Average Frequency", _calculateAverage("frequency"), Colors.green),
-                  _buildStatisticCard("Average PF", _calculateAverage("PF"), Colors.orange),
-                  _buildStatisticCard("Avg Electric Price", _calculateAverage("electricPrice"), Colors.blue),
-                  const SizedBox(height: 20),
-                  _buildLineChart("Voltage Over Index", "voltage", Colors.teal),
-                  _buildLineChart("Power Over Index", "power", Colors.pink),
-                  _buildLineChart("Current Over Index", "current", Colors.blue),
-                ],
-              ),
+            child: ListView(
+              children: [
+                _buildStatisticCard("Average Frequency", _calculateAverage("frequency"), Colors.deepPurple),
+                _buildStatisticCard("Average PF", _calculateAverage("PF"), Colors.deepPurpleAccent),
+                _buildStatisticCard("Avg Electric Price", _calculateAverage("electricPrice"), Colors.purpleAccent),
+                _buildLineChart("Voltage Over Index", "voltage", Colors.deepPurple),
+                _buildLineChart("Power Over Index", "power", Colors.purple),
+                _buildLineChart("Current Over Index", "current", Colors.deepPurpleAccent),
+              ],
             ),
           ),
         ],
@@ -245,23 +258,31 @@ Future<void> _sendData() async {
 
   Widget _buildStatisticCard(String title, double value, Color color) {
     return Card(
+      elevation: 4,
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      color: color.withOpacity(0.1),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
-        title: Text(title, style: TextStyle(fontSize: 18, color: color)),
-        trailing: Text(value.toStringAsFixed(2), style: TextStyle(fontSize: 24, color: color)),
+        title: Text(
+          title,
+          style: TextStyle(fontSize: 18, color: color),
+        ),
+        trailing: Text(
+          value.toStringAsFixed(2),
+          style: TextStyle(fontSize: 24, color: color, fontWeight: FontWeight.bold),
+        ),
       ),
     );
   }
 
   Widget _buildLineChart(String title, String key, Color color) {
-    List<FlSpot> spots = [];
-    for (int i = 0; i < _sentData.length; i++) {
-      spots.add(FlSpot(i.toDouble(), _sentData[i][key] ?? 0.0));
-    }
+    List<FlSpot> spots = _sentData.asMap().entries.map((entry) {
+      return FlSpot(entry.key.toDouble(), entry.value[key] ?? 0.0);
+    }).toList();
 
     return Card(
+      elevation: 4,
       margin: const EdgeInsets.all(16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -276,7 +297,7 @@ Future<void> _sendData() async {
                     LineChartBarData(
                       isCurved: true,
                       color: color,
-                      barWidth: 3,
+                      barWidth: 4,
                       spots: spots,
                       belowBarData: BarAreaData(show: false),
                     ),
